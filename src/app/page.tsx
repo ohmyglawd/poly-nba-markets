@@ -31,6 +31,19 @@ function fmtVal(v: unknown) {
   return '—';
 }
 
+function bestMarketForTag(
+  markets: MatchupCard['markets'],
+  key: 'spreads' | 'totals' | 'points'
+) {
+  const ms = markets.filter(
+    (m) =>
+      (m.sportsMarketType || '').toLowerCase() === key &&
+      m.selections.some((s) => typeof s.priceYes === 'number' && s.priceYes > 0)
+  );
+  ms.sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0) || (b.volume ?? 0) - (a.volume ?? 0));
+  return ms[0];
+}
+
 export default function Home() {
   const today = useMemo(() => toYyyyMmDd(new Date()), []);
   const [date, setDate] = useState(today);
@@ -174,27 +187,49 @@ export default function Home() {
                       {card.startTime ? new Date(card.startTime).toLocaleString() : 'Time TBD'}
                     </div>
 
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      {card.markets
-                        .filter((m) => m.type === 'moneyline' || m.type === 'spread' || m.type === 'total')
-                        .slice(0, 3)
-                        .map((m) => (
-                          <span
-                            key={m.id}
-                            className="rounded-md border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-[11px] text-neutral-300"
-                          >
-                            <span className="mr-2 text-neutral-500">
-                              {m.type === 'moneyline' ? 'ML' : m.type === 'spread' ? 'SPRD' : 'TOTAL'}
-                            </span>
-                            <span className="tabular-nums">
-                              {m.selections
-                                .slice(0, 2)
-                                .map((s) => `${s.label} ${fmtCents(s.priceYes)}`)
-                                .join(' · ')}
-                            </span>
-                          </span>
-                        ))}
-                    </div>
+                    {(() => {
+                      const start = card.startTime ? Date.parse(card.startTime) : NaN;
+                      const isFuture = Number.isFinite(start) ? start > Date.now() : true;
+                      if (!isFuture) return null;
+
+                      const tags = [
+                        { key: 'spreads' as const, label: 'SPRD' },
+                        { key: 'totals' as const, label: 'TOTAL' },
+                        { key: 'points' as const, label: 'POINTS' },
+                      ]
+                        .map((t) => ({ ...t, market: bestMarketForTag(card.markets, t.key) }))
+                        .filter((x) => x.market);
+
+                      if (tags.length === 0) return null;
+
+                      return (
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {tags.map(({ key, label, market }) => {
+                            const m = market!;
+                            const line = typeof m.line === 'number' ? m.line : undefined;
+                            const chipTitle = line != null ? `${label} ${line}` : label;
+                            const prices = m.selections
+                              .filter((s) => typeof s.priceYes === 'number' && s.priceYes > 0)
+                              .slice(0, 2);
+
+                            if (prices.length === 0) return null;
+
+                            return (
+                              <span
+                                key={`${key}:${m.id}`}
+                                className="rounded-md border border-neutral-800 bg-neutral-950/40 px-2 py-1 text-[11px] text-neutral-300"
+                                title={m.title}
+                              >
+                                <span className="mr-2 text-neutral-500">{chipTitle}</span>
+                                <span className="tabular-nums">
+                                  {prices.map((s) => `${s.label} ${fmtCents(s.priceYes)}`).join(' · ')}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2">
