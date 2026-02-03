@@ -92,19 +92,23 @@ export async function fetchLatestInjuryReport(params: {
 
 function buildCandidateUrls(now: Date, lookbackSteps: number, stepMinutes: number): Array<{ url: string; label: string }> {
   // Use Intl to format date/time in ET reliably.
-  // We generate a series of timestamps rounded down to the nearest 15-min boundary (or stepMinutes).
+  // IMPORTANT: the NBA filenames are on fixed minute boundaries (typically every 15 minutes),
+  // so we must round DOWN the ET minutes; otherwise we'd generate non-existent names like 04_53AM.
   const out: Array<{ url: string; label: string }> = [];
 
   const dt = new Date(now.getTime());
-  // Round down to the stepMinutes boundary in ET by iteratively stepping back and formatting.
-  // We do an initial coarse rounding in UTC then correct by formatting in ET.
-  // Pragmatically: generate N steps back and let formatting decide the filename.
 
   for (let i = 0; i <= lookbackSteps; i++) {
     const t = new Date(dt.getTime() - i * stepMinutes * 60_000);
-    const { dateStr, hh12, mm, ampm } = formatEtFilenameParts(t);
-    const url = `https://ak-static.cms.nba.com/referee/injury/Injury-Report_${dateStr}_${hh12}_${mm}${ampm}.pdf`;
-    out.push({ url, label: `${dateStr} ${hh12}:${mm} ${ampm} ET` });
+    const parts = formatEtFilenameParts(t);
+
+    const mmNum = Number(parts.mm);
+    const step = stepMinutes;
+    const floored = Number.isFinite(mmNum) ? Math.floor(mmNum / step) * step : mmNum;
+    const mm = String(floored).padStart(2, "0");
+
+    const url = `https://ak-static.cms.nba.com/referee/injury/Injury-Report_${parts.dateStr}_${parts.hh12}_${mm}${parts.ampm}.pdf`;
+    out.push({ url, label: `${parts.dateStr} ${parts.hh12}:${mm} ${parts.ampm} ET` });
   }
 
   // De-dup in case formatting collides across steps
