@@ -33,7 +33,7 @@ function fmtVal(v: unknown) {
 
 function bestMarketForTag(
   markets: MatchupCard['markets'],
-  key: 'spreads' | 'totals' | 'points'
+  key: 'moneyline' | 'spreads' | 'totals'
 ) {
   const ms = markets.filter(
     (m) =>
@@ -193,9 +193,9 @@ export default function Home() {
                       if (!isFuture) return null;
 
                       const tags = [
+                        { key: 'moneyline' as const, label: 'ML' },
                         { key: 'spreads' as const, label: 'SPRD' },
                         { key: 'totals' as const, label: 'TOTAL' },
-                        { key: 'points' as const, label: 'POINTS' },
                       ]
                         .map((t) => ({ ...t, market: bestMarketForTag(card.markets, t.key) }))
                         .filter((x) => x.market);

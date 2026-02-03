@@ -63,8 +63,47 @@ function mapMarket(m: GammaMarket): PolymarketMarket {
 
   const outcomes = m['outcomes'];
   const prices = m['outcomePrices'];
-  const outs = Array.isArray(outcomes) ? outcomes.map(String) : [];
-  const prs = Array.isArray(prices) ? prices.map(toNumMaybe) : [];
+
+  const parseStrList = (v: unknown): string[] => {
+    if (Array.isArray(v)) return v.map(String);
+    if (typeof v === 'string') {
+      // Gamma sometimes returns JSON-encoded strings.
+      try {
+        const x = JSON.parse(v) as unknown;
+        if (Array.isArray(x)) return x.map(String);
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  };
+
+  const parseNumList = (v: unknown): Array<number | undefined> => {
+    if (Array.isArray(v)) return v.map(toNumMaybe);
+    if (typeof v === 'string') {
+      try {
+        const x = JSON.parse(v) as unknown;
+        if (Array.isArray(x)) return x.map(toNumMaybe);
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  };
+
+  const outs = parseStrList(outcomes);
+  const prs = parseNumList(prices);
+
+  // Fallback: if outcomePrices aren't present, try lastTradePrice/bestAsk.
+  if (outs.length === 2 && prs.length === 0) {
+    const lp = toNumMaybe(m['lastTradePrice']);
+    const ba = toNumMaybe(m['bestAsk']);
+    const p0 = lp ?? ba;
+    if (typeof p0 === 'number') {
+      prs[0] = p0;
+      prs[1] = 1 - p0;
+    }
+  }
 
   const selections = outs.map((label, i) => ({
     label,
@@ -131,7 +170,11 @@ export async function GET(req: Request) {
       const id = String(getStr(ev, 'id') || getStr(ev, 'slug') || title);
       const startTime = getStr(ev, 'startTime') || getStr(ev, 'eventDate') || getStr(ev, 'endDate') || undefined;
 
-      const markets = Array.isArray(ev.markets) ? ev.markets.map(mapMarket) : [];
+      const marketsAll = Array.isArray(ev.markets) ? ev.markets.map(mapMarket) : [];
+      // For now, only show core markets
+      const markets = marketsAll.filter(
+        (m) => (m.sportsMarketType || '').toLowerCase() === 'moneyline' || (m.sportsMarketType || '').toLowerCase() === 'spreads' || (m.sportsMarketType || '').toLowerCase() === 'totals'
+      );
 
       const card: MatchupCard = {
         id,
