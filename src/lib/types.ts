@@ -42,6 +42,8 @@ export type NbaGameResult = {
 
 export type NbaMatchupData = {
   date: string; // YYYY-MM-DD (local date from client)
+  gameId?: string; // nba.com / stats game id (e.g. 0022500716)
+  gameChartsUrl?: string;
   home: NbaTeamInfo;
   away: NbaTeamInfo;
   season: string;

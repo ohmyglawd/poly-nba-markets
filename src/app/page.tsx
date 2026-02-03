@@ -32,6 +32,7 @@ export default function Home() {
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, NbaMatchupData | { error: string }>>({});
+  const [charts, setCharts] = useState<Record<string, unknown>>({});
 
   async function load() {
     setLoading(true);
@@ -74,6 +75,14 @@ export default function Home() {
         [card.id]: { error: e instanceof Error ? e.message : String(e) },
       }));
     }
+  }
+
+  async function loadCharts(cardId: string, gameId: string) {
+    const key = `${cardId}:${gameId}`;
+    if (charts[key]) return;
+    const res = await fetch(`/api/nba/game-charts?gameId=${encodeURIComponent(gameId)}`);
+    const json = await res.json();
+    setCharts((c) => ({ ...c, [key]: json }));
   }
 
   return (
@@ -245,6 +254,82 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="space-y-4">
+                        <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="text-sm font-semibold">Game Charts (nba.com)</div>
+                            {d.gameChartsUrl ? (
+                              <a
+                                className="text-xs text-emerald-300 hover:underline"
+                                href={d.gameChartsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                open
+                              </a>
+                            ) : null}
+                          </div>
+
+                          {!d.gameId ? (
+                            <div className="text-xs text-neutral-500">No gameId resolved for this matchup.</div>
+                          ) : (
+                            <div className="flex items-center gap-3">
+                              <button
+                                className="rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-900"
+                                onClick={() => loadCharts(card.id, d.gameId!)}
+                              >
+                                Load charts summary
+                              </button>
+                              <span className="text-xs text-neutral-500">gameId: {d.gameId}</span>
+                            </div>
+                          )}
+
+                          {d.gameId ? (() => {
+                            const key = `${card.id}:${d.gameId}`;
+                            type ChartsSummary = {
+                              error?: string;
+                              homeTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
+                              awayTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
+                            };
+                            const ch = charts[key] as ChartsSummary | undefined;
+                            if (!ch) return null;
+                            if (ch.error) {
+                              return (
+                                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                                  {String(ch.error)}
+                                </div>
+                              );
+                            }
+                            const hs = ch?.homeTeam?.statistics || {};
+                            const as = ch?.awayTeam?.statistics || {};
+                            return (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
+                                  <div className="mb-2 text-xs font-semibold text-neutral-300">
+                                    {ch?.homeTeam?.teamTricode || 'HOME'}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="tabular-nums">{hs.points ?? '—'}</div>
+                                    <div>REB</div><div className="tabular-nums">{hs.reboundsTotal ?? '—'}</div>
+                                    <div>AST</div><div className="tabular-nums">{hs.assists ?? '—'}</div>
+                                    <div>TOV</div><div className="tabular-nums">{hs.turnovers ?? '—'}</div>
+                                  </div>
+                                </div>
+                                <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
+                                  <div className="mb-2 text-xs font-semibold text-neutral-300">
+                                    {ch?.awayTeam?.teamTricode || 'AWAY'}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="tabular-nums">{as.points ?? '—'}</div>
+                                    <div>REB</div><div className="tabular-nums">{as.reboundsTotal ?? '—'}</div>
+                                    <div>AST</div><div className="tabular-nums">{as.assists ?? '—'}</div>
+                                    <div>TOV</div><div className="tabular-nums">{as.turnovers ?? '—'}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })() : null}
+                        </div>
+
                         <div className="grid gap-3 md:grid-cols-3">
                           {(['moneyline', 'spread', 'total'] as const).map((t) => {
                             const mk = card.markets.filter((m) => m.type === t).slice(0, 2);
