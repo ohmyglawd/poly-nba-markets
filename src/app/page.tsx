@@ -23,6 +23,13 @@ function fmtCents(p?: number) {
   return `${Math.round(c)}¢`;
 }
 
+function fmtVal(v: unknown) {
+  if (v == null) return '—';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '—';
+  if (typeof v === 'string') return v;
+  return '—';
+}
+
 export default function Home() {
   const today = useMemo(() => toYyyyMmDd(new Date()), []);
   const [date, setDate] = useState(today);
@@ -299,8 +306,8 @@ export default function Home() {
                                 </div>
                               );
                             }
-                            const hs = ch?.homeTeam?.statistics || {};
-                            const as = ch?.awayTeam?.statistics || {};
+                            const hs = (ch?.homeTeam?.statistics || {}) as Record<string, unknown>;
+                            const as = (ch?.awayTeam?.statistics || {}) as Record<string, unknown>;
                             return (
                               <div className="mt-3 grid gap-3 md:grid-cols-2">
                                 <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
@@ -308,10 +315,10 @@ export default function Home() {
                                     {ch?.homeTeam?.teamTricode || 'HOME'}
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
-                                    <div>PTS</div><div className="tabular-nums">{hs.points ?? '—'}</div>
-                                    <div>REB</div><div className="tabular-nums">{hs.reboundsTotal ?? '—'}</div>
-                                    <div>AST</div><div className="tabular-nums">{hs.assists ?? '—'}</div>
-                                    <div>TOV</div><div className="tabular-nums">{hs.turnovers ?? '—'}</div>
+                                    <div>PTS</div><div className="tabular-nums">{fmtVal(hs.points)}</div>
+                                    <div>REB</div><div className="tabular-nums">{fmtVal(hs.reboundsTotal)}</div>
+                                    <div>AST</div><div className="tabular-nums">{fmtVal(hs.assists)}</div>
+                                    <div>TOV</div><div className="tabular-nums">{fmtVal(hs.turnovers)}</div>
                                   </div>
                                 </div>
                                 <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
@@ -319,10 +326,10 @@ export default function Home() {
                                     {ch?.awayTeam?.teamTricode || 'AWAY'}
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
-                                    <div>PTS</div><div className="tabular-nums">{as.points ?? '—'}</div>
-                                    <div>REB</div><div className="tabular-nums">{as.reboundsTotal ?? '—'}</div>
-                                    <div>AST</div><div className="tabular-nums">{as.assists ?? '—'}</div>
-                                    <div>TOV</div><div className="tabular-nums">{as.turnovers ?? '—'}</div>
+                                    <div>PTS</div><div className="tabular-nums">{fmtVal(as.points)}</div>
+                                    <div>REB</div><div className="tabular-nums">{fmtVal(as.reboundsTotal)}</div>
+                                    <div>AST</div><div className="tabular-nums">{fmtVal(as.assists)}</div>
+                                    <div>TOV</div><div className="tabular-nums">{fmtVal(as.turnovers)}</div>
                                   </div>
                                 </div>
                               </div>
