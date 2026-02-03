@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { MatchupCard, NbaMatchupData, NbaResolvedGame } from '@/lib/types';
+import type { MatchupCard, NbaResolvedGame } from '@/lib/types';
 import { toYyyyMmDd } from '@/lib/date';
 import { groupByMarketType } from '@/lib/polymarket';
 
@@ -40,7 +40,6 @@ export default function Home() {
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [resolved, setResolved] = useState<Record<string, NbaResolvedGame | { error: string }>>({});
-  const [advanced, setAdvanced] = useState<Record<string, NbaMatchupData | { error: string }>>({});
   const [charts, setCharts] = useState<Record<string, unknown>>({});
 
   async function load() {
@@ -89,23 +88,7 @@ export default function Home() {
     }
   }
 
-  async function loadAdvanced(card: MatchupCard) {
-    if (advanced[card.id]) return;
-    try {
-      const url = `/api/nba/matchup?date=${encodeURIComponent(date)}&home=${encodeURIComponent(
-        card.homeTeam.name
-      )}&away=${encodeURIComponent(card.awayTeam.name)}`;
-      const res = await fetch(url);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.detail || json?.error || 'NBA fetch failed');
-      setAdvanced((d) => ({ ...d, [card.id]: json }));
-    } catch (e: unknown) {
-      setAdvanced((d) => ({
-        ...d,
-        [card.id]: { error: e instanceof Error ? e.message : String(e) },
-      }));
-    }
-  }
+  // Advanced stats removed (stats.nba.com is not reliable on Vercel)
 
   async function loadCharts(cardId: string, gameId: string) {
     const key = `${cardId}:${gameId}`;
@@ -123,7 +106,7 @@ export default function Home() {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">NBA Markets</h1>
               <p className="text-sm text-neutral-400">
-                Polymarket-style matchup list · expand for official NBA stats
+                Polymarket-style matchup list · focus on Moneyline / Spread / Total
               </p>
             </div>
             <Pill>Robinhood-ish dark</Pill>
@@ -167,7 +150,6 @@ export default function Home() {
           {items.map((card) => {
             const isOpen = openId === card.id;
             const r = resolved[card.id];
-            const a = advanced[card.id];
             return (
               <div
                 key={card.id}
@@ -309,8 +291,18 @@ export default function Home() {
                             const key = `${card.id}:${r.gameId}`;
                             type ChartsSummary = {
                               error?: string;
-                              homeTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
-                              awayTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
+                              homeTeam?: {
+                                teamTricode?: string;
+                                score?: number;
+                                seasonAveragesPerGame?: Record<string, unknown>;
+                                leadingPlayers?: Record<string, unknown>;
+                              };
+                              awayTeam?: {
+                                teamTricode?: string;
+                                score?: number;
+                                seasonAveragesPerGame?: Record<string, unknown>;
+                                leadingPlayers?: Record<string, unknown>;
+                              };
                             };
                             const ch = charts[key] as ChartsSummary | undefined;
                             if (!ch) {
@@ -323,30 +315,67 @@ export default function Home() {
                                 </div>
                               );
                             }
-                            const hs = (ch?.homeTeam?.statistics || {}) as Record<string, unknown>;
-                            const as = (ch?.awayTeam?.statistics || {}) as Record<string, unknown>;
+                            const hs = (ch?.homeTeam?.seasonAveragesPerGame || {}) as Record<string, unknown>;
+                            const as = (ch?.awayTeam?.seasonAveragesPerGame || {}) as Record<string, unknown>;
+                            const hl = (ch?.homeTeam?.leadingPlayers || {}) as Record<string, unknown>;
+                            const al = (ch?.awayTeam?.leadingPlayers || {}) as Record<string, unknown>;
+
+                            type Leader = { name?: string; value?: number };
+                            const getLeader = (o: Record<string, unknown>, k: string): Leader => {
+                              const v = o[k];
+                              if (!v || typeof v !== 'object') return {};
+                              const r = v as Record<string, unknown>;
+                              const name = typeof r.name === 'string' ? r.name : undefined;
+                              const value = typeof r.value === 'number' ? r.value : undefined;
+                              return { name, value };
+                            };
+
+                            const leaderLine = (x: Leader) =>
+                              x.name ? `${x.name} ${x.value ?? ''}`.trim() : '—';
+
                             return (
                               <div className="mt-3 grid gap-3 md:grid-cols-2">
                                 <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
-                                  <div className="mb-2 text-xs font-semibold text-neutral-300">
-                                    {ch?.homeTeam?.teamTricode || 'HOME'}
+                                  <div className="mb-1 flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-neutral-300">
+                                      {ch?.homeTeam?.teamTricode || 'HOME'}
+                                    </div>
+                                    <div className="text-xs text-neutral-500 tabular-nums">{fmtVal(ch?.homeTeam?.score)}</div>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
-                                    <div>PTS</div><div className="tabular-nums">{fmtVal(hs.points)}</div>
-                                    <div>REB</div><div className="tabular-nums">{fmtVal(hs.reboundsTotal)}</div>
-                                    <div>AST</div><div className="tabular-nums">{fmtVal(hs.assists)}</div>
-                                    <div>TOV</div><div className="tabular-nums">{fmtVal(hs.turnovers)}</div>
+                                  <div className="text-[11px] text-neutral-500">Season averages / game</div>
+                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="tabular-nums">{fmtVal(hs.pts)}</div>
+                                    <div>REB</div><div className="tabular-nums">{fmtVal(hs.reb)}</div>
+                                    <div>AST</div><div className="tabular-nums">{fmtVal(hs.ast)}</div>
+                                    <div>TOV</div><div className="tabular-nums">{fmtVal(hs.tov)}</div>
+                                  </div>
+                                  <div className="mt-3 text-[11px] text-neutral-500">Leading players</div>
+                                  <div className="mt-1 grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="truncate">{leaderLine(getLeader(hl, 'pts'))}</div>
+                                    <div>REB</div><div className="truncate">{leaderLine(getLeader(hl, 'reb'))}</div>
+                                    <div>AST</div><div className="truncate">{leaderLine(getLeader(hl, 'ast'))}</div>
                                   </div>
                                 </div>
+
                                 <div className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
-                                  <div className="mb-2 text-xs font-semibold text-neutral-300">
-                                    {ch?.awayTeam?.teamTricode || 'AWAY'}
+                                  <div className="mb-1 flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-neutral-300">
+                                      {ch?.awayTeam?.teamTricode || 'AWAY'}
+                                    </div>
+                                    <div className="text-xs text-neutral-500 tabular-nums">{fmtVal(ch?.awayTeam?.score)}</div>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300">
-                                    <div>PTS</div><div className="tabular-nums">{fmtVal(as.points)}</div>
-                                    <div>REB</div><div className="tabular-nums">{fmtVal(as.reboundsTotal)}</div>
-                                    <div>AST</div><div className="tabular-nums">{fmtVal(as.assists)}</div>
-                                    <div>TOV</div><div className="tabular-nums">{fmtVal(as.turnovers)}</div>
+                                  <div className="text-[11px] text-neutral-500">Season averages / game</div>
+                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="tabular-nums">{fmtVal(as.pts)}</div>
+                                    <div>REB</div><div className="tabular-nums">{fmtVal(as.reb)}</div>
+                                    <div>AST</div><div className="tabular-nums">{fmtVal(as.ast)}</div>
+                                    <div>TOV</div><div className="tabular-nums">{fmtVal(as.tov)}</div>
+                                  </div>
+                                  <div className="mt-3 text-[11px] text-neutral-500">Leading players</div>
+                                  <div className="mt-1 grid grid-cols-2 gap-2 text-xs text-neutral-300">
+                                    <div>PTS</div><div className="truncate">{leaderLine(getLeader(al, 'pts'))}</div>
+                                    <div>REB</div><div className="truncate">{leaderLine(getLeader(al, 'reb'))}</div>
+                                    <div>AST</div><div className="truncate">{leaderLine(getLeader(al, 'ast'))}</div>
                                   </div>
                                 </div>
                               </div>
@@ -354,101 +383,7 @@ export default function Home() {
                           })() : null}
                         </div>
 
-                        <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-                          <div className="mb-2 flex items-center justify-between">
-                            <div className="text-sm font-semibold">Advanced stats (stats.nba.com)</div>
-                            <button
-                              className="rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-900"
-                              onClick={() => loadAdvanced(card)}
-                            >
-                              Load
-                            </button>
-                          </div>
-                          {!a ? (
-                            <div className="text-xs text-neutral-500">Not loaded.</div>
-                          ) : 'error' in a ? (
-                            <div className="text-xs text-amber-200">{a.error}</div>
-                          ) : (
-                            <div className="text-xs text-neutral-400">Loaded (H2H + last5).</div>
-                          )}
-                        </div>
-
-                        {a && !('error' in a) ? (
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-                              <div className="mb-2 flex items-center justify-between">
-                                <div className="text-sm font-semibold">Head-to-head (season {a.season})</div>
-                                <Pill>
-                                  {a.headToHead.homeWins}-{a.headToHead.awayWins}
-                                </Pill>
-                              </div>
-                              <div className="space-y-2">
-                                {a.headToHead.games.map((g) => (
-                                  <div
-                                    key={g.gameId}
-                                    className="flex items-center justify-between text-xs text-neutral-300"
-                                  >
-                                    <span className="text-neutral-500">{g.gameDate}</span>
-                                    <span className="mx-2 flex-1 truncate">{g.matchup}</span>
-                                    <span
-                                      className={cn('ml-2', g.wl === 'W' ? 'text-emerald-300' : 'text-rose-300')}
-                                    >
-                                      {g.wl}
-                                    </span>
-                                    <span className="ml-2 tabular-nums">{g.pts}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-                              <div className="mb-2 text-sm font-semibold">Recent form (last 5)</div>
-                              <div className="grid gap-3">
-                                <div>
-                                  <div className="mb-1 text-xs text-neutral-400">
-                                    {a.home.name} ({a.home.abbr})
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {a.recentForm.homeLast5.map((g) => (
-                                      <span
-                                        key={g.gameId}
-                                        className={cn(
-                                          'rounded-md border px-2 py-1 text-xs tabular-nums',
-                                          g.wl === 'W'
-                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                                            : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-                                        )}
-                                      >
-                                        {g.wl} {g.pts}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <div className="mb-1 text-xs text-neutral-400">
-                                    {a.away.name} ({a.away.abbr})
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {a.recentForm.awayLast5.map((g) => (
-                                      <span
-                                        key={g.gameId}
-                                        className={cn(
-                                          'rounded-md border px-2 py-1 text-xs tabular-nums',
-                                          g.wl === 'W'
-                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                                            : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-                                        )}
-                                      >
-                                        {g.wl} {g.pts}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
+                        {/* Advanced stats removed */}
                       </div>
                     )}
                   </div>
