@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getInjuryReportWithCache } from "@/lib/injury";
+import { summarizeInjuriesFromPdfText } from "@/lib/injuryParse";
 
 export const runtime = "nodejs";
 
@@ -13,15 +14,15 @@ export async function GET() {
       stepMinutes: 15,
     });
 
+    const summary = summarizeInjuriesFromPdfText(value.pdfText);
+
     return NextResponse.json({
       ok: true,
       stale,
       fetchedAtMs: value.fetchedAtMs,
       sourceUrl: value.sourceUrl,
       reportLabel: value.reportLabel,
-      // For now return raw text; UI can derive per-game summaries.
-      // If this gets large, we can switch to returning a parsed structure.
-      pdfText: value.pdfText,
+      summary,
     });
   } catch (e) {
     return NextResponse.json(

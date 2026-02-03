@@ -9,12 +9,12 @@ function cn(...xs: Array<string | false | undefined>) {
   return xs.filter(Boolean).join(' ');
 }
 
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">
-      {children}
-    </span>
-  );
+function Pill({ children, tone = "green" }: { children: React.ReactNode; tone?: "green" | "neutral" }) {
+  const cls =
+    tone === "green"
+      ? "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200"
+      : "rounded-full border border-neutral-700 bg-neutral-900/40 px-2 py-0.5 text-xs text-neutral-300";
+  return <span className={cls}>{children}</span>;
 }
 
 function fmtCents(p?: number) {
@@ -55,6 +55,24 @@ export default function Home() {
   const [resolved, setResolved] = useState<Record<string, NbaResolvedGame | { error: string }>>({});
   const [charts, setCharts] = useState<Record<string, unknown>>({});
 
+  const [injury, setInjury] = useState<
+    | null
+    | {
+        fetchedAtMs: number;
+        reportLabel: string;
+        sourceUrl: string;
+        summary: {
+          byTeamName: Record<
+            string,
+            {
+              teamName: string;
+              counts: { Out: number; Doubtful: number; Questionable: number; Probable: number };
+            }
+          >;
+        };
+      }
+  >(null);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -79,6 +97,25 @@ export default function Home() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
+
+  useEffect(() => {
+    // On-demand injury summary (cached server-side)
+    (async () => {
+      try {
+        const res = await fetch("/api/injury", { cache: "no-store" });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) return;
+        setInjury({
+          fetchedAtMs: json.fetchedAtMs,
+          reportLabel: json.reportLabel,
+          sourceUrl: json.sourceUrl,
+          summary: json.summary,
+        });
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
 
   async function ensureResolved(card: MatchupCard) {
     if (resolved[card.id]) return;
@@ -122,7 +159,14 @@ export default function Home() {
                 Polymarket-style matchup list · focus on Moneyline / Spread / Total
               </p>
             </div>
-            <Pill>Robinhood-ish dark</Pill>
+            <div className="flex items-center gap-2">
+              <Pill>Robinhood-ish dark</Pill>
+              {injury ? (
+                <Pill tone="neutral">
+                  Injury report: {injury.reportLabel}
+                </Pill>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -186,6 +230,31 @@ export default function Home() {
                     <div className="text-xs text-neutral-500">
                       {card.startTime ? new Date(card.startTime).toLocaleString() : 'Time TBD'}
                     </div>
+
+                    {injury ? (() => {
+                      const by = injury.summary.byTeamName;
+                      const a = by[card.awayTeam.name];
+                      const h = by[card.homeTeam.name];
+                      const chip = (label: string, v?: { counts: { Out: number; Doubtful: number; Questionable: number; Probable: number } }) => {
+                        if (!v) return null;
+                        const { Out, Questionable } = v.counts;
+                        if (!Out && !Questionable) return null;
+                        return (
+                          <span className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+                            {label}: OUT {Out} · Q {Questionable}
+                          </span>
+                        );
+                      };
+                      const c1 = chip(card.awayTeam.name, a);
+                      const c2 = chip(card.homeTeam.name, h);
+                      if (!c1 && !c2) return null;
+                      return (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {c1}
+                          {c2}
+                        </div>
+                      );
+                    })() : null}
 
                     {(() => {
                       const start = card.startTime ? Date.parse(card.startTime) : NaN;
