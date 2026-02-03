@@ -306,49 +306,7 @@ export async function GET(req: Request) {
 
     // Try to resolve gameId via nba.com/games (B source) for the requested date.
     // This stays usable on Vercel even if stats.nba.com blocks advanced endpoints.
-    let gameId: string | undefined;
-    try {
-      const gamesUrl = `https://www.nba.com/games?date=${encodeURIComponent(date)}`;
-      const htmlRes = await fetch(gamesUrl, {
-        headers: {
-          ...nbaHeaders(),
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        cache: 'no-store',
-      });
-      if (htmlRes.ok) {
-        const html = await htmlRes.text();
-        const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-        if (m && m[1]) {
-          const nextData = JSON.parse(m[1]) as unknown;
-          const get = (o: unknown, k: string): unknown =>
-            o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined;
-
-          const pageProps = get(get(nextData, 'props'), 'pageProps');
-          const gameCardFeed = get(pageProps, 'gameCardFeed');
-          const modules = get(gameCardFeed, 'modules');
-          const firstModule = Array.isArray(modules) ? (modules[0] as unknown) : undefined;
-          const cards = get(firstModule, 'cards');
-
-          if (Array.isArray(cards)) {
-            for (const c of cards as Array<Record<string, unknown>>) {
-              const cardData = (c['cardData'] || {}) as Record<string, unknown>;
-              const ht = (cardData['homeTeam'] || {}) as Record<string, unknown>;
-              const at = (cardData['awayTeam'] || {}) as Record<string, unknown>;
-              const homeId = Number(ht['teamId'] ?? 0);
-              const awayId = Number(at['teamId'] ?? 0);
-              if (homeId === homeTeam.teamId && awayId === awayTeam.teamId) {
-                const gid = cardData['gameId'];
-                if (typeof gid === 'string' && gid) gameId = gid;
-                break;
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
+    // Note: gameId resolution moved to /api/nba/resolve-game (fast path for Vercel).
 
     // 2) Head-to-head (current season): leaguegamefinder with TeamID + VsTeamID.
     const leagueGameFinderUrl = new URL('https://stats.nba.com/stats/leaguegamefinder');
@@ -402,8 +360,6 @@ export async function GET(req: Request) {
 
     const payload: NbaMatchupData = {
       date,
-      gameId,
-      gameChartsUrl: gameId ? `https://www.nba.com/game/${gameId}/game-charts` : undefined,
       season,
       seasonType,
       home: homeTeam,

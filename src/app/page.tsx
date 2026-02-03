@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { MatchupCard, NbaMatchupData } from '@/lib/types';
+import type { MatchupCard, NbaMatchupData, NbaResolvedGame } from '@/lib/types';
 import { toYyyyMmDd } from '@/lib/date';
 
 function cn(...xs: Array<string | false | undefined>) {
@@ -38,7 +38,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const [openId, setOpenId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Record<string, NbaMatchupData | { error: string }>>({});
+  const [resolved, setResolved] = useState<Record<string, NbaResolvedGame | { error: string }>>({});
+  const [advanced, setAdvanced] = useState<Record<string, NbaMatchupData | { error: string }>>({});
   const [charts, setCharts] = useState<Record<string, unknown>>({});
 
   async function load() {
@@ -66,8 +67,29 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  async function ensureDetail(card: MatchupCard) {
-    if (detail[card.id]) return;
+  async function ensureResolved(card: MatchupCard) {
+    if (resolved[card.id]) return;
+    try {
+      const url = `/api/nba/resolve-game?date=${encodeURIComponent(date)}&home=${encodeURIComponent(
+        card.homeTeam.name
+      )}&away=${encodeURIComponent(card.awayTeam.name)}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.detail || json?.error || 'NBA resolve failed');
+      setResolved((d) => ({ ...d, [card.id]: json }));
+
+      // Auto-load charts if we got a gameId
+      if (json?.gameId) await loadCharts(card.id, String(json.gameId));
+    } catch (e: unknown) {
+      setResolved((d) => ({
+        ...d,
+        [card.id]: { error: e instanceof Error ? e.message : String(e) },
+      }));
+    }
+  }
+
+  async function loadAdvanced(card: MatchupCard) {
+    if (advanced[card.id]) return;
     try {
       const url = `/api/nba/matchup?date=${encodeURIComponent(date)}&home=${encodeURIComponent(
         card.homeTeam.name
@@ -75,9 +97,9 @@ export default function Home() {
       const res = await fetch(url);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.detail || json?.error || 'NBA fetch failed');
-      setDetail((d) => ({ ...d, [card.id]: json }));
+      setAdvanced((d) => ({ ...d, [card.id]: json }));
     } catch (e: unknown) {
-      setDetail((d) => ({
+      setAdvanced((d) => ({
         ...d,
         [card.id]: { error: e instanceof Error ? e.message : String(e) },
       }));
@@ -143,7 +165,8 @@ export default function Home() {
 
           {items.map((card) => {
             const isOpen = openId === card.id;
-            const d = detail[card.id];
+            const r = resolved[card.id];
+            const a = advanced[card.id];
             return (
               <div
                 key={card.id}
@@ -154,7 +177,7 @@ export default function Home() {
                   onClick={async () => {
                     const next = isOpen ? null : card.id;
                     setOpenId(next);
-                    if (next) await ensureDetail(card);
+                    if (next) await ensureResolved(card);
                   }}
                 >
                   <div className="flex flex-col gap-1">
@@ -250,24 +273,21 @@ export default function Home() {
                       })}
                     </div>
 
-                    {!d ? (
-                      <div className="text-sm text-neutral-500">Loading matchup stats…</div>
-                    ) : 'error' in d ? (
+                    {!r ? (
+                      <div className="text-sm text-neutral-500">Resolving gameId…</div>
+                    ) : 'error' in r ? (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-                        {d.error}
-                        <div className="mt-2 text-xs text-neutral-400">
-                          stats.nba.com occasionally blocks requests; we may need to tweak headers or add caching.
-                        </div>
+                        {r.error}
                       </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
                           <div className="mb-2 flex items-center justify-between">
                             <div className="text-sm font-semibold">Game Charts (nba.com)</div>
-                            {d.gameChartsUrl ? (
+                            {r.gameChartsUrl ? (
                               <a
                                 className="text-xs text-emerald-300 hover:underline"
-                                href={d.gameChartsUrl}
+                                href={r.gameChartsUrl}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -276,29 +296,23 @@ export default function Home() {
                             ) : null}
                           </div>
 
-                          {!d.gameId ? (
+                          {!r.gameId ? (
                             <div className="text-xs text-neutral-500">No gameId resolved for this matchup.</div>
                           ) : (
-                            <div className="flex items-center gap-3">
-                              <button
-                                className="rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-900"
-                                onClick={() => loadCharts(card.id, d.gameId!)}
-                              >
-                                Load charts summary
-                              </button>
-                              <span className="text-xs text-neutral-500">gameId: {d.gameId}</span>
-                            </div>
+                            <div className="text-xs text-neutral-500">gameId: {r.gameId}</div>
                           )}
 
-                          {d.gameId ? (() => {
-                            const key = `${card.id}:${d.gameId}`;
+                          {r.gameId ? (() => {
+                            const key = `${card.id}:${r.gameId}`;
                             type ChartsSummary = {
                               error?: string;
                               homeTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
                               awayTeam?: { teamTricode?: string; statistics?: Record<string, unknown> };
                             };
                             const ch = charts[key] as ChartsSummary | undefined;
-                            if (!ch) return null;
+                            if (!ch) {
+                              return <div className="mt-3 text-xs text-neutral-500">Loading charts summary…</div>;
+                            }
                             if (ch.error) {
                               return (
                                 <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
@@ -337,113 +351,101 @@ export default function Home() {
                           })() : null}
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-3">
-                          {(['moneyline', 'spread', 'total'] as const).map((t) => {
-                            const mk = card.markets.filter((m) => m.type === t).slice(0, 2);
-                            if (mk.length === 0) return null;
-                            return (
-                              <div
-                                key={t}
-                                className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4"
-                              >
-                                <div className="mb-2 text-xs font-semibold text-neutral-300">
-                                  {t === 'moneyline' ? 'Moneyline' : t === 'spread' ? 'Spread' : 'Total'}
-                                </div>
-                                <div className="space-y-2">
-                                  {mk.map((m) => (
-                                    <div key={m.id} className="rounded-md border border-neutral-800 bg-neutral-900/30 p-2">
-                                      <div className="text-[11px] text-neutral-400">{m.title}</div>
-                                      <div className="mt-1 flex flex-wrap gap-2">
-                                        {m.selections.map((s) => (
-                                          <div
-                                            key={s.label}
-                                            className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs"
-                                          >
-                                            <span className="text-neutral-200">{s.label}</span>
-                                            <span className="tabular-nums text-emerald-200">{fmtCents(s.priceYes)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
                         <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
                           <div className="mb-2 flex items-center justify-between">
-                            <div className="text-sm font-semibold">Head-to-head (season {d.season})</div>
-                            <Pill>
-                              {d.headToHead.homeWins}-{d.headToHead.awayWins}
-                            </Pill>
+                            <div className="text-sm font-semibold">Advanced stats (stats.nba.com)</div>
+                            <button
+                              className="rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-900"
+                              onClick={() => loadAdvanced(card)}
+                            >
+                              Load
+                            </button>
                           </div>
-                          <div className="space-y-2">
-                            {d.headToHead.games.map((g) => (
-                              <div
-                                key={g.gameId}
-                                className="flex items-center justify-between text-xs text-neutral-300"
-                              >
-                                <span className="text-neutral-500">{g.gameDate}</span>
-                                <span className="mx-2 flex-1 truncate">{g.matchup}</span>
-                                <span className={cn('ml-2', g.wl === 'W' ? 'text-emerald-300' : 'text-rose-300')}>
-                                  {g.wl}
-                                </span>
-                                <span className="ml-2 tabular-nums">{g.pts}</span>
-                              </div>
-                            ))}
-                          </div>
+                          {!a ? (
+                            <div className="text-xs text-neutral-500">Not loaded.</div>
+                          ) : 'error' in a ? (
+                            <div className="text-xs text-amber-200">{a.error}</div>
+                          ) : (
+                            <div className="text-xs text-neutral-400">Loaded (H2H + last5).</div>
+                          )}
                         </div>
 
-                        <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-                          <div className="mb-2 text-sm font-semibold">Recent form (last 5)</div>
-                          <div className="grid gap-3">
-                            <div>
-                              <div className="mb-1 text-xs text-neutral-400">
-                                {d.home.name} ({d.home.abbr})
+                        {a && !('error' in a) ? (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+                              <div className="mb-2 flex items-center justify-between">
+                                <div className="text-sm font-semibold">Head-to-head (season {a.season})</div>
+                                <Pill>
+                                  {a.headToHead.homeWins}-{a.headToHead.awayWins}
+                                </Pill>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                {d.recentForm.homeLast5.map((g) => (
-                                  <span
+                              <div className="space-y-2">
+                                {a.headToHead.games.map((g) => (
+                                  <div
                                     key={g.gameId}
-                                    className={cn(
-                                      'rounded-md border px-2 py-1 text-xs tabular-nums',
-                                      g.wl === 'W'
-                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                                        : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-                                    )}
+                                    className="flex items-center justify-between text-xs text-neutral-300"
                                   >
-                                    {g.wl} {g.pts}
-                                  </span>
+                                    <span className="text-neutral-500">{g.gameDate}</span>
+                                    <span className="mx-2 flex-1 truncate">{g.matchup}</span>
+                                    <span
+                                      className={cn('ml-2', g.wl === 'W' ? 'text-emerald-300' : 'text-rose-300')}
+                                    >
+                                      {g.wl}
+                                    </span>
+                                    <span className="ml-2 tabular-nums">{g.pts}</span>
+                                  </div>
                                 ))}
                               </div>
                             </div>
 
-                            <div>
-                              <div className="mb-1 text-xs text-neutral-400">
-                                {d.away.name} ({d.away.abbr})
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {d.recentForm.awayLast5.map((g) => (
-                                  <span
-                                    key={g.gameId}
-                                    className={cn(
-                                      'rounded-md border px-2 py-1 text-xs tabular-nums',
-                                      g.wl === 'W'
-                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                                        : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-                                    )}
-                                  >
-                                    {g.wl} {g.pts}
-                                  </span>
-                                ))}
+                            <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+                              <div className="mb-2 text-sm font-semibold">Recent form (last 5)</div>
+                              <div className="grid gap-3">
+                                <div>
+                                  <div className="mb-1 text-xs text-neutral-400">
+                                    {a.home.name} ({a.home.abbr})
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {a.recentForm.homeLast5.map((g) => (
+                                      <span
+                                        key={g.gameId}
+                                        className={cn(
+                                          'rounded-md border px-2 py-1 text-xs tabular-nums',
+                                          g.wl === 'W'
+                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                                            : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                                        )}
+                                      >
+                                        {g.wl} {g.pts}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="mb-1 text-xs text-neutral-400">
+                                    {a.away.name} ({a.away.abbr})
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {a.recentForm.awayLast5.map((g) => (
+                                      <span
+                                        key={g.gameId}
+                                        className={cn(
+                                          'rounded-md border px-2 py-1 text-xs tabular-nums',
+                                          g.wl === 'W'
+                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                                            : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                                        )}
+                                      >
+                                        {g.wl} {g.pts}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
+                        ) : null}
                       </div>
                     )}
                   </div>

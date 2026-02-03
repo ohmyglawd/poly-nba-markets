@@ -40,10 +40,16 @@ export type NbaGameResult = {
   oppPts: number;
 };
 
+export type NbaResolvedGame = {
+  date: string;
+  home: NbaTeamInfo;
+  away: NbaTeamInfo;
+  gameId?: string;
+  gameChartsUrl?: string;
+};
+
 export type NbaMatchupData = {
   date: string; // YYYY-MM-DD (local date from client)
-  gameId?: string; // nba.com / stats game id (e.g. 0022500716)
-  gameChartsUrl?: string;
   home: NbaTeamInfo;
   away: NbaTeamInfo;
   season: string;
