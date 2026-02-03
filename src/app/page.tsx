@@ -189,12 +189,25 @@ export default function Home() {
 
             <div className="grid gap-4 p-4 md:grid-cols-2">
               {([injuryModal.away, injuryModal.home] as const).map((team) => {
-                const t = injury.summary.byTeamName[team];
+                const by = injury.summary.byTeamName;
+                const keys = Object.keys(by);
+                const n = team.trim().toLowerCase();
+                const key =
+                  (by[team] && team) ||
+                  keys.find((k) => k.toLowerCase() === n) ||
+                  keys.find((k) => k.toLowerCase().endsWith(` ${n}`)) ||
+                  (() => {
+                    const last = n.split(/\s+/).filter(Boolean).slice(-1)[0];
+                    if (!last) return undefined;
+                    return keys.find((k) => k.toLowerCase().endsWith(` ${last}`) || k.toLowerCase() === last);
+                  })();
+
+                const t = key ? by[key] : undefined;
                 const players = (t?.players || []).filter((p) => p.status === 'Out' || p.status === 'Questionable');
                 return (
                   <div key={team} className="rounded-lg border border-neutral-800 bg-neutral-900/30 p-3">
                     <div className="mb-2 flex items-center justify-between">
-                      <div className="text-sm font-semibold">{team}</div>
+                      <div className="text-sm font-semibold">{key || team}</div>
                       {t ? (
                         <div className="text-[11px] text-neutral-400 tabular-nums">
                           OUT {t.counts.Out} · Q {t.counts.Questionable}
@@ -321,8 +334,26 @@ export default function Home() {
 
                     {injury ? (() => {
                       const by = injury.summary.byTeamName;
-                      const a = by[card.awayTeam.name];
-                      const h = by[card.homeTeam.name];
+                      const findTeam = (name: string) => {
+                        if (by[name]) return by[name];
+                        const n = name.trim().toLowerCase();
+                        const keys = Object.keys(by);
+                        // Exact (case-insensitive)
+                        const exact = keys.find((k) => k.toLowerCase() === n);
+                        if (exact) return by[exact];
+                        // Suffix match: "Lakers" -> "Los Angeles Lakers"
+                        const suf = keys.find((k) => k.toLowerCase().endsWith(` ${n}`) || k.toLowerCase() === n);
+                        if (suf) return by[suf];
+                        // Last-word match as fallback
+                        const last = n.split(/\s+/).filter(Boolean).slice(-1)[0];
+                        if (last) {
+                          const lw = keys.find((k) => k.toLowerCase().endsWith(` ${last}`) || k.toLowerCase() === last);
+                          if (lw) return by[lw];
+                        }
+                        return undefined;
+                      };
+                      const a = findTeam(card.awayTeam.name);
+                      const h = findTeam(card.homeTeam.name);
                       const chip = (label: string, v?: { counts: { Out: number; Doubtful: number; Questionable: number; Probable: number } }) => {
                         if (!v) return null;
                         const { Out, Questionable } = v.counts;
