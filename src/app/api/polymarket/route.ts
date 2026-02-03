@@ -77,6 +77,8 @@ function mapMarket(m: GammaMarket): PolymarketMarket {
   const pm: PolymarketMarket = {
     id,
     type,
+    sportsMarketType: sportsMarketType || undefined,
+    line,
     title: subtitle ? `${title} · ${subtitle}` : title,
     volume: getNum(m, 'volumeNum') ?? getNum(m, 'volume'),
     liquidity: getNum(m, 'liquidityNum') ?? getNum(m, 'liquidity'),
@@ -129,8 +131,7 @@ export async function GET(req: Request) {
       const id = String(getStr(ev, 'id') || getStr(ev, 'slug') || title);
       const startTime = getStr(ev, 'startTime') || getStr(ev, 'eventDate') || getStr(ev, 'endDate') || undefined;
 
-      const marketsAll = Array.isArray(ev.markets) ? ev.markets.map(mapMarket) : [];
-      const markets = marketsAll.filter((m) => m.type === 'moneyline' || m.type === 'spread' || m.type === 'total');
+      const markets = Array.isArray(ev.markets) ? ev.markets.map(mapMarket) : [];
 
       const card: MatchupCard = {
         id,

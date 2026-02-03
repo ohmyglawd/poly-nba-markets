@@ -3,11 +3,14 @@ import { nbaHeaders } from '@/lib/nbaHeaders';
 import type { NbaTeamInfo } from '@/lib/types';
 
 type ResolveResponse = {
-  date: string;
+  date: string; // requested
+  searchedDates: string[];
+  resolvedDate?: string;
   home: NbaTeamInfo;
   away: NbaTeamInfo;
   gameId?: string;
   gameChartsUrl?: string;
+  note?: string;
 };
 
 const NBA_TEAMS: NbaTeamInfo[] = [
@@ -62,6 +65,16 @@ function get(o: unknown, k: string): unknown {
   return o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined;
 }
 
+function addDays(yyyyMmDd: string, delta: number) {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  dt.setDate(dt.getDate() + delta);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const date = searchParams.get('date');
@@ -78,60 +91,79 @@ export async function GET(req: Request) {
   const homeTeam = findTeam(home);
   const awayTeam = findTeam(away);
 
+  const searchedDates = [date, addDays(date, -1), addDays(date, +1)];
+
   try {
-    const gamesUrl = `https://www.nba.com/games?date=${encodeURIComponent(date)}`;
-    const htmlRes = await fetch(gamesUrl, {
-      headers: {
-        ...nbaHeaders(),
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      cache: 'no-store',
-    });
-
-    if (!htmlRes.ok) {
-      const text = await htmlRes.text().catch(() => '');
-      return NextResponse.json(
-        { error: `NBA games page fetch failed ${htmlRes.status}`, detail: text.slice(0, 2000) },
-        { status: 502 }
-      );
-    }
-
-    const html = await htmlRes.text();
-    const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-    if (!m || !m[1]) {
-      return NextResponse.json({ error: 'NBA games page parse failed: missing __NEXT_DATA__' }, { status: 502 });
-    }
-
-    const nextData = JSON.parse(m[1]) as unknown;
-    const pageProps = get(get(nextData, 'props'), 'pageProps');
-    const gameCardFeed = get(pageProps, 'gameCardFeed');
-    const modules = get(gameCardFeed, 'modules');
-    const firstModule = Array.isArray(modules) ? (modules[0] as unknown) : undefined;
-    const cards = get(firstModule, 'cards');
-
     let gameId: string | undefined;
+    let resolvedDate: string | undefined;
 
-    if (Array.isArray(cards)) {
+    for (const day of searchedDates) {
+      const gamesUrl = `https://www.nba.com/games?date=${encodeURIComponent(day)}`;
+      const htmlRes = await fetch(gamesUrl, {
+        headers: {
+          ...nbaHeaders(),
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        cache: 'no-store',
+      });
+
+      if (!htmlRes.ok) continue;
+
+      const html = await htmlRes.text();
+      const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (!m || !m[1]) continue;
+
+      let nextData: unknown;
+      try {
+        nextData = JSON.parse(m[1]);
+      } catch {
+        continue;
+      }
+
+      const pageProps = get(get(nextData, 'props'), 'pageProps');
+      const gameCardFeed = get(pageProps, 'gameCardFeed');
+      const modules = get(gameCardFeed, 'modules');
+      const firstModule = Array.isArray(modules) ? (modules[0] as unknown) : undefined;
+      const cards = get(firstModule, 'cards');
+
+      if (!Array.isArray(cards)) continue;
+
       for (const c of cards as Array<Record<string, unknown>>) {
         const cardData = (c['cardData'] || {}) as Record<string, unknown>;
         const ht = (cardData['homeTeam'] || {}) as Record<string, unknown>;
         const at = (cardData['awayTeam'] || {}) as Record<string, unknown>;
         const homeId = Number(ht['teamId'] ?? 0);
         const awayId = Number(at['teamId'] ?? 0);
-        if (homeId === homeTeam.teamId && awayId === awayTeam.teamId) {
+
+        const direct = homeId === homeTeam.teamId && awayId === awayTeam.teamId;
+        const swapped = homeId === awayTeam.teamId && awayId === homeTeam.teamId;
+
+        if (direct || swapped) {
           const gid = cardData['gameId'];
-          if (typeof gid === 'string' && gid) gameId = gid;
-          break;
+          if (typeof gid === 'string' && gid) {
+            gameId = gid;
+            resolvedDate = day;
+            break;
+          }
         }
       }
+
+      if (gameId) break;
     }
 
     const payload: ResolveResponse = {
       date,
+      searchedDates,
+      resolvedDate,
       home: homeTeam,
       away: awayTeam,
       gameId,
       gameChartsUrl: gameId ? `https://www.nba.com/game/${gameId}/game-charts` : undefined,
+      note: gameId
+        ? resolvedDate && resolvedDate !== date
+          ? `Resolved gameId on adjacent date ${resolvedDate} (timezone mismatch likely).`
+          : undefined
+        : `No game found on searched dates. This can happen if NBA.com date is ET-based while your selected date is local.`
     };
 
     return NextResponse.json(payload);

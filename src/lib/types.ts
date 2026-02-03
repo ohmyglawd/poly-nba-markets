@@ -9,6 +9,8 @@ export type PolymarketSelection = {
 export type PolymarketMarket = {
   id: string;
   type: MarketType;
+  sportsMarketType?: string; // e.g. moneyline, spreads, totals, points, assists...
+  line?: number;
   title: string;
   volume?: number;
   liquidity?: number;

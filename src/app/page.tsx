@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MatchupCard, NbaMatchupData, NbaResolvedGame } from '@/lib/types';
 import { toYyyyMmDd } from '@/lib/date';
+import { groupByMarketType } from '@/lib/polymarket';
 
 function cn(...xs: Array<string | false | undefined>) {
   return xs.filter(Boolean).join(' ');
@@ -233,44 +234,46 @@ export default function Home() {
                 {isOpen ? (
                   <div className="border-t border-neutral-800 px-4 py-4">
                     {/* Markets (show even if NBA API blocks) */}
-                    <div className="mb-4 grid gap-3 md:grid-cols-3">
-                      {(['moneyline', 'spread', 'total'] as const).map((t) => {
-                        const mk = card.markets.filter((m) => m.type === t).slice(0, 2);
-                        if (mk.length === 0) return null;
-                        return (
-                          <div
-                            key={t}
-                            className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4"
-                          >
-                            <div className="mb-2 text-xs font-semibold text-neutral-300">
-                              {t === 'moneyline' ? 'Moneyline' : t === 'spread' ? 'Spread' : 'Total'}
-                            </div>
-                            <div className="space-y-2">
-                              {mk.map((m) => (
-                                <div
-                                  key={m.id}
-                                  className="rounded-md border border-neutral-800 bg-neutral-900/30 p-2"
-                                >
-                                  <div className="text-[11px] text-neutral-400">{m.title}</div>
-                                  <div className="mt-1 flex flex-wrap gap-2">
-                                    {m.selections.map((s) => (
-                                      <div
-                                        key={s.label}
-                                        className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs"
-                                      >
-                                        <span className="text-neutral-200">{s.label}</span>
-                                        <span className="tabular-nums text-emerald-200">
-                                          {fmtCents(s.priceYes)}
-                                        </span>
-                                      </div>
-                                    ))}
+                    <div className="mb-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-sm font-semibold">Markets</div>
+                        <span className="text-xs text-neutral-500">{card.markets.length} markets</span>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {Object.entries(groupByMarketType(card.markets))
+                          .sort((a, b) => b[1].length - a[1].length)
+                          .slice(0, 6)
+                          .map(([k, list]) => (
+                            <div key={k} className="rounded-md border border-neutral-800 bg-neutral-900/30 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <div className="text-xs font-semibold text-neutral-300">{k}</div>
+                                <span className="text-[11px] text-neutral-500">{list.length}</span>
+                              </div>
+                              <div className="space-y-2">
+                                {list.slice(0, 3).map((m) => (
+                                  <div key={m.id} className="rounded-md border border-neutral-800 bg-neutral-950/30 p-2">
+                                    <div className="text-[11px] text-neutral-400 line-clamp-2">{m.title}</div>
+                                    <div className="mt-1 flex flex-wrap gap-2">
+                                      {m.selections.slice(0, 2).map((s) => (
+                                        <div
+                                          key={s.label}
+                                          className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs"
+                                        >
+                                          <span className="text-neutral-200">{s.label}</span>
+                                          <span className="tabular-nums text-emerald-200">{fmtCents(s.priceYes)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                                {list.length > 3 ? (
+                                  <div className="text-[11px] text-neutral-500">+{list.length - 3} more</div>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          ))}
+                      </div>
                     </div>
 
                     {!r ? (
