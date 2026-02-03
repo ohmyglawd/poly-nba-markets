@@ -67,11 +67,14 @@ export default function Home() {
             {
               teamName: string;
               counts: { Out: number; Doubtful: number; Questionable: number; Probable: number };
+              players: Array<{ name: string; status: string; reason: string }>;
             }
           >;
         };
       }
   >(null);
+
+  const [injuryModal, setInjuryModal] = useState<null | { away: string; home: string }>(null);
 
   async function load() {
     setLoading(true);
@@ -150,6 +153,91 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
+      {injuryModal && injury ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setInjuryModal(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-xl border border-neutral-800 bg-neutral-950 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-neutral-800 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold">Injuries</div>
+                <div className="text-xs text-neutral-500">
+                  {injury.reportLabel} ·{' '}
+                  <a
+                    className="text-emerald-300 hover:underline"
+                    href={injury.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    PDF
+                  </a>
+                </div>
+              </div>
+              <button
+                className="rounded-md border border-neutral-800 bg-neutral-900/40 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-900"
+                onClick={() => setInjuryModal(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 p-4 md:grid-cols-2">
+              {([injuryModal.away, injuryModal.home] as const).map((team) => {
+                const t = injury.summary.byTeamName[team];
+                const players = (t?.players || []).filter((p) => p.status === 'Out' || p.status === 'Questionable');
+                return (
+                  <div key={team} className="rounded-lg border border-neutral-800 bg-neutral-900/30 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-sm font-semibold">{team}</div>
+                      {t ? (
+                        <div className="text-[11px] text-neutral-400 tabular-nums">
+                          OUT {t.counts.Out} · Q {t.counts.Questionable}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-neutral-500">No data</div>
+                      )}
+                    </div>
+
+                    {players.length === 0 ? (
+                      <div className="text-xs text-neutral-500">No OUT/Q listed.</div>
+                    ) : (
+                      <ul className="space-y-2">
+                        {players.map((p, idx) => (
+                          <li key={idx} className="rounded-md border border-neutral-800 bg-neutral-950/30 p-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-medium text-neutral-200">{p.name}</div>
+                              <div
+                                className={cn(
+                                  'rounded-md px-2 py-0.5 text-[11px] tabular-nums',
+                                  p.status === 'Out'
+                                    ? 'border border-red-500/20 bg-red-500/10 text-red-200'
+                                    : 'border border-amber-500/20 bg-amber-500/10 text-amber-200'
+                                )}
+                              >
+                                {p.status}
+                              </div>
+                            </div>
+                            {p.reason ? (
+                              <div className="mt-1 text-[11px] text-neutral-400">{p.reason}</div>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto max-w-5xl px-4 py-10">
         <header className="mb-8 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
@@ -249,9 +337,15 @@ export default function Home() {
                       const c2 = chip(card.homeTeam.name, h);
                       if (!c1 && !c2) return null;
                       return (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {c1}
-                          {c2}
+                        <div className="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="contents"
+                            onClick={() => setInjuryModal({ away: card.awayTeam.name, home: card.homeTeam.name })}
+                            title="Show injury details"
+                          >
+                            {c1}
+                            {c2}
+                          </button>
                         </div>
                       );
                     })() : null}

@@ -1,8 +1,15 @@
 export type InjuryStatus = "Out" | "Doubtful" | "Questionable" | "Probable";
 
+export type TeamInjuryPlayer = {
+  name: string;
+  status: InjuryStatus;
+  reason: string;
+};
+
 export type TeamInjurySummary = {
   teamName: string;
   counts: Record<InjuryStatus, number>;
+  players: TeamInjuryPlayer[];
 };
 
 export type InjurySummary = {
@@ -60,21 +67,63 @@ export function summarizeInjuriesFromPdfText(pdfText: string): InjurySummary {
 
   let currentTeamName: string | null = null;
 
+  let pendingPlayer: { name: string; status: InjuryStatus; reasonTokens: string[] } | null = null;
+
+  const flushPending = () => {
+    if (!pendingPlayer || !currentTeamName) return;
+    const reason = pendingPlayer.reasonTokens.join(" ").trim();
+    bump(byTeamName, currentTeamName, pendingPlayer.status, {
+      name: pendingPlayer.name,
+      status: pendingPlayer.status,
+      reason,
+    });
+    pendingPlayer = null;
+  };
+
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
 
     // Update team context when we see a plausible team tail.
     if (TEAM_TAILS.has(t)) {
+      flushPending();
       const name = buildTeamName(tokens, i);
       if (name) currentTeamName = name;
       continue;
     }
 
-    // Count when we see a status token.
-    if (isStatusToken(t) && currentTeamName) {
-      bump(byTeamName, currentTeamName, t as InjuryStatus);
+    // Start of a player token: contains comma, e.g. Bates, Tamar
+    if (t.includes(",")) {
+      flushPending();
+      const last = t.replace(/,$/, "");
+      const first = tokens[i + 1] && !tokens[i + 1].includes(",") ? tokens[i + 1] : "";
+      const name = first ? `${last}, ${first}` : last;
+      // If we consumed first name, advance i
+      if (first) i++;
+      pendingPlayer = { name, status: "Out", reasonTokens: [] };
+      continue;
+    }
+
+    // Status token applies to current pending player.
+    if (isStatusToken(t)) {
+      if (pendingPlayer) {
+        pendingPlayer.status = t as InjuryStatus;
+        pendingPlayer.reasonTokens = [];
+      } else if (currentTeamName) {
+        // Fallback: count without a player
+        bump(byTeamName, currentTeamName, t as InjuryStatus);
+      }
+      continue;
+    }
+
+    // Accumulate reason text until next player/team/status.
+    if (pendingPlayer) {
+      // Skip obvious noise tokens
+      if (t === "-" || t === "·") continue;
+      pendingPlayer.reasonTokens.push(t);
     }
   }
+
+  flushPending();
 
   return { byTeamName };
 }
@@ -139,7 +188,12 @@ function buildTeamName(tokens: string[], tailIndex: number): string | null {
   return name;
 }
 
-function bump(byTeamName: Record<string, TeamInjurySummary>, teamName: string, status: InjuryStatus) {
+function bump(
+  byTeamName: Record<string, TeamInjurySummary>,
+  teamName: string,
+  status: InjuryStatus,
+  player?: { name: string; status: InjuryStatus; reason: string }
+) {
   if (!byTeamName[teamName]) {
     byTeamName[teamName] = {
       teamName,
@@ -149,9 +203,11 @@ function bump(byTeamName: Record<string, TeamInjurySummary>, teamName: string, s
         Questionable: 0,
         Probable: 0,
       },
+      players: [],
     };
   }
   byTeamName[teamName].counts[status]++;
+  if (player) byTeamName[teamName].players.push(player);
 }
 
 function isStatusToken(t: string): boolean {
@@ -169,6 +225,9 @@ function normalizeForParsing(s: string): string {
 
   // Add space after comma for player tokens
   x = x.replace(/,/g, ", ");
+
+  // Separate G League / On Assignment markers so they don't get merged into team names
+  x = x.replace(/GLeague/g, "G League");
 
   // Split some common smash boundaries
   x = x.replace(/\)(?=\w)/g, ") ");
